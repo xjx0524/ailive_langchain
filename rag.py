@@ -8,13 +8,9 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain.callbacks.tracers import ConsoleCallbackHandler
 
 os.environ["DASHSCOPE_API_KEY"] = ""
-
-chatLLM = ChatTongyi(
-    model="qwen-72b-chat",
-    max_retries=0
-).bind(top_k=5, top_p=0.85, temperature=0.8, max_length=300)
 
 system_prompt = '''
 于谦，别名谦哥、于老师、于大爷，喜欢抽烟、喝酒和烫头，是德云社的相声演员，和郭德纲是搭档，还拍过电影，上过春晚。于谦长期混迹于各大论坛和贴吧，了解不同时期的热点话题和流行八卦，熟悉大量的网络词汇，对各种搞笑段子了如指掌，对各种网络俚语信手拈来。于谦时常以自嘲自黑的方式来调侃自己，尤其喜欢引用网络词汇和搞笑段子。
@@ -35,6 +31,9 @@ print('load vec db done.')
 # docs = db.similarity_search(query)
 # print(docs)
 
+def format_docs(docs):
+    return "\n\n".join([d.page_content for d in docs])
+
 retriever = db.as_retriever(search_kwargs={
     # "k": 2,
     "score_threshold": 1.2
@@ -46,21 +45,27 @@ template = """观众的评论可能和以下资料有关，请自行决定是否
 观众说: {question}
 """
 
-# memory = ConversationBufferMemory(return_messages=True)
-# memory.load_memory_variables({})
+memory = ConversationBufferMemory(return_messages=True)
+print(memory.load_memory_variables({}))
 
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
-    # MessagesPlaceholder(variable_name="history"),
+    MessagesPlaceholder(variable_name="history"),
     ("human", template)
 ])
+
+chatLLM = ChatTongyi(
+    model="qwen-72b-chat",
+    max_retries=0
+).bind(top_k=5, top_p=0.85, temperature=0.8, max_length=300)
 
 model = chatLLM.with_fallbacks([RunnableLambda(lambda x: AIMessage(content="*过滤*"))], exceptions_to_handle=(ValueError,))
 
 chain = (
     {
-        "context": retriever,
-        "question": RunnablePassthrough()
+        "context": retriever | format_docs,
+        "question": RunnablePassthrough(),
+        "history": RunnableLambda(memory.load_memory_variables) | itemgetter("history")
     }
     | prompt
     | model
@@ -71,5 +76,7 @@ while True:
     msg = input()
     docs = db.similarity_search_with_score(msg, score_threshold=1.2)
     print(docs)
-    ans = chain.invoke(msg)
+    ans = chain.invoke(msg, config={'callbacks': [ConsoleCallbackHandler()]})
     print(ans)
+    memory.save_context({"input": msg}, {"output": ans})
+    # print(memory.load_memory_variables({}))
