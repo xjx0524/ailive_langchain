@@ -74,9 +74,15 @@ embeddings = DashScopeEmbeddings(
 # print('save local done.')
 #==================
 
-db = FAISS.load_local('./vector_db/', embeddings, 'cuiuc')
+db = FAISS.load_local('./vector_db/', embeddings, 'merge_20240109')
 
 while True:
     query = input()
-    docs = db.similarity_search_with_score(query, score_threshold=1.2)
+    docs = db.similarity_search_with_score(query, score_threshold=1.15)
     print(docs)
+
+# db1 = FAISS.load_local('./vector_db/', embeddings, 'cuiuc')
+# db2 = FAISS.load_local('./vector_db/', embeddings, 'geng')
+
+# db1.merge_from(db2)
+# db1.save_local("vector_db", "merge_20240109")
